@@ -42,7 +42,7 @@ POST /products
 ```json
 {
   "name": "Apple",
-  "price": "2.50",
+  "price": "2.50"
 }
 ```
 
@@ -59,5 +59,48 @@ POST /products
 ```json
 {
   "message": "Unable to create product"
+}
+```
+
+### DELETE Product by ID
+```http
+DELETE /products/{item_id}
+```
+**Example Response** -- 204 No Content
+
+**Example Response** -- 404 Not Found
+
+```json
+{
+  "message": "No product found"
+}
+```
+
+### PATCH Product by ID
+```http
+PATCH /products/{item_id}
+```
+
+**Request Body**
+```json
+{
+  "name": "apple",
+  "price": "2.75"
+}
+```
+
+**Example Response** -- 200 OK
+```json
+{
+  "id": "1",
+  "name": "apple",
+  "price": "2.75"
+}
+```
+
+**Example Response** -- 404 Not found
+```json
+{
+  "message": "No product found"
 }
 ```
