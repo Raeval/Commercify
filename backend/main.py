@@ -1,12 +1,48 @@
-from fastapi import FastAPI
-from fastapi import HTTPException
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from pydantic import BaseModel, EmailStr
+from database import Base, engine, get_db
+from sqlalchemy.orm import Session
+import models
+import os
+from datetime import datetime, timedelta, timezone
+
+from passlib.context import CryptContext
+
+from enums import *
+
+import jwt
+
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+JWT_ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_HOURS = 48
+
+security = HTTPBearer(auto_error=False)
+
+# Base.metadata.drop_all(bind=engine)
+Base.metadata.create_all(bind=engine)
 app = FastAPI()
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 class ProductBody(BaseModel):
     name: str
     price: str
+
+class RegisterBody(BaseModel):
+    username: str
+    email: EmailStr
+    password: str
+    gender: GenderType
+
+class SignInBody(BaseModel):
+    username: str
+    password: str
+
+class CreateShopBody(BaseModel):
+    shop_name: str
+    plan: ShopPlan | None = None
 
 products = [
 {
@@ -77,3 +113,200 @@ def find_product(item_id: str):
         status_code=404,
         detail="Product not found"
     )
+
+def create_access_token(user_id: int):
+    payload = {
+        "sub": str(user_id),
+        "exp": datetime.now(timezone.utc) + timedelta(
+            hours=ACCESS_TOKEN_EXPIRE_HOURS
+        ),
+    }
+
+    return jwt.encode(
+        payload,
+        JWT_SECRET_KEY,
+        algorithm=JWT_ALGORITHM,
+    )
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+):
+    if credentials is None:
+        raise HTTPException(status_code=401, detail="Missing authentication token")
+    
+    try:
+        payload = jwt.decode(
+            credentials.credentials,
+            JWT_SECRET_KEY,
+            algorithms=[JWT_ALGORITHM],
+        )
+        user_id = payload.get("sub")
+
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid token")
+
+        user = db.get(models.User, int(user_id))
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+
+        return user
+
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+@app.post('/auth/register', status_code = 201)
+def register(req_body: RegisterBody, db: Session = Depends(get_db)):
+    existing_user = (db.query(models.User)
+                        .filter(models.User.email == req_body.email)
+                        .first()
+    )
+
+    if existing_user:
+        raise HTTPException(status_code=409, detail="Email already registered")
+
+    new_user = models.User(
+        username=req_body.username,
+        email=req_body.email,
+        gender=req_body.gender,
+        hashed_password=pwd_context.hash(req_body.password),
+    )
+
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    access_token = create_access_token(new_user.user_id)
+
+    return {
+        "message": "User registered successfully",
+        "user_id": new_user.user_id,
+        "access_token": access_token,
+        "token_type": "bearer",
+    }
+
+@app.post('/auth/sign-in')
+def sign_in(req_body: SignInBody, db: Session = Depends(get_db)):
+    user = (
+        db.query(models.User)
+            .filter(models.User.username == req_body.username)
+            .first()
+    )
+
+    if not user or not pwd_context.verify(req_body.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid Credentials")
+    
+    access_token = create_access_token(user.user_id)
+    return {
+        "message": "User Signed In Successfully",
+        "user_id": user.user_id,
+        "access_token": access_token,
+        "token_type": "bearer",
+    }
+
+@app.get('/auth/me')
+def get_me(user: models.User = Depends(get_current_user)):
+    return {
+        "user_id": user.user_id,
+        "username": user.username,
+        "email": user.email,
+        "gender": user.gender,
+    }
+
+@app.get('/orders/{order_id}')
+def get_order(
+        order_id: int,
+        user: models.User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+    ):
+    order: models.Order = (
+        db.query(models.Order)
+            .filter(models.Order.order_id == order_id,
+                    models.Order.user_id == user.user_id)
+            .first()
+    )
+
+    if order:
+        return {
+            "message": "Order Found",
+            "order_id": order.order_id,
+            "items": [
+                {
+                    "product_id": item.product_id,
+                    "quantity": item.quantity,
+                    "cost_at_purchase": item.cost_at_purchase
+                }
+                for item in order.items
+            ]
+        }
+
+    raise HTTPException(status_code=404, detail="Order not found")
+
+@app.post('/shops/create', status_code = 201)
+def create_shop(
+    req_body: CreateShopBody,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+    ):
+
+    existing_shop = (
+        db.query(models.Shop)
+            .filter(models.Shop.shop_name == req_body.shop_name)
+            .first()
+    )
+    
+    if existing_shop:
+        raise HTTPException(status_code=409, detail="Shop name not available")
+    
+    plan = req_body.plan
+    if not plan:
+        plan = ShopPlan.FREE
+
+    new_shop = models.Shop(
+        shop_name=req_body.shop_name,
+        plan=plan
+    )
+
+    db.add(new_shop)
+    db.flush()
+
+    shop_owner = models.ShopOwner(
+        shop_id=new_shop.shop_id,
+        user_id=user.user_id,
+    )
+
+    db.add(shop_owner)
+    db.commit()
+
+    return {
+        "message": "Shop created successfully",
+        "shop_id": new_shop.shop_id
+    }
+
+@app.get('/shops/{shop_id}')
+def get_shop(
+    shop_id: int,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    shop: models.Shop = (
+        db.query(models.Shop)
+            .filter(models.Shop.shop_id == shop_id)
+            .first()
+    )
+    if not shop:
+        raise HTTPException(status_code=404, detail="Shop not found")
+
+    return {
+        "shop_name": shop.shop_name,
+        "shop_id": shop.shop_id,
+        "owners": shop.owners,
+        "products": [
+            {
+                "product_id": product.product_id,
+                "name": product.product_name,
+                "price": product.price,
+            }
+            for product in shop.products
+        ]
+    }

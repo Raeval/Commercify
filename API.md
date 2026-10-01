@@ -66,8 +66,8 @@ POST /products
 ```http
 DELETE /products/{item_id}
 ```
-**Example Response** -- 204 No Content
 
+**Example Response** -- 204 No Content
 **Example Response** -- 404 Not Found
 
 ```json
