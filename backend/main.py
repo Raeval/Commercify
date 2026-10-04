@@ -1,24 +1,15 @@
 from fastapi import FastAPI, HTTPException, Depends
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from pydantic import BaseModel, EmailStr
 from database import Base, engine, get_db
 from sqlalchemy.orm import Session
 import models
-import os
-from datetime import datetime, timedelta, timezone
 
 from passlib.context import CryptContext
 
+from services import auth_service
+
 from enums import *
-
-import jwt
-
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
-JWT_ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_HOURS = 48
-
-security = HTTPBearer(auto_error=False)
 
 # Base.metadata.drop_all(bind=engine)
 Base.metadata.create_all(bind=engine)
@@ -114,70 +105,11 @@ def find_product(item_id: str):
         detail="Product not found"
     )
 
-def create_access_token(user_id: int):
-    payload = {
-        "sub": str(user_id),
-        "exp": datetime.now(timezone.utc) + timedelta(
-            hours=ACCESS_TOKEN_EXPIRE_HOURS
-        ),
-    }
-
-    return jwt.encode(
-        payload,
-        JWT_SECRET_KEY,
-        algorithm=JWT_ALGORITHM,
-    )
-
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db),
-):
-    if credentials is None:
-        raise HTTPException(status_code=401, detail="Missing authentication token")
-    
-    try:
-        payload = jwt.decode(
-            credentials.credentials,
-            JWT_SECRET_KEY,
-            algorithms=[JWT_ALGORITHM],
-        )
-        user_id = payload.get("sub")
-
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid token")
-
-        user = db.get(models.User, int(user_id))
-        if not user:
-            raise HTTPException(status_code=401, detail="User not found")
-
-        return user
-
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-
 @app.post('/auth/register', status_code = 201)
 def register(req_body: RegisterBody, db: Session = Depends(get_db)):
-    existing_user = (db.query(models.User)
-                        .filter(models.User.email == req_body.email)
-                        .first()
+    new_user, access_token = auth_service.register(
+        req_body.email, req_body.username, req_body.gender, req_body.password, db
     )
-
-    if existing_user:
-        raise HTTPException(status_code=409, detail="Email already registered")
-
-    new_user = models.User(
-        username=req_body.username,
-        email=req_body.email,
-        gender=req_body.gender,
-        hashed_password=pwd_context.hash(req_body.password),
-    )
-
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-
-    access_token = create_access_token(new_user.user_id)
-
     return {
         "message": "User registered successfully",
         "user_id": new_user.user_id,
@@ -187,16 +119,10 @@ def register(req_body: RegisterBody, db: Session = Depends(get_db)):
 
 @app.post('/auth/sign-in')
 def sign_in(req_body: SignInBody, db: Session = Depends(get_db)):
-    user = (
-        db.query(models.User)
-            .filter(models.User.username == req_body.username)
-            .first()
+    user, access_token = auth_service.sign_in(
+        req_body.username, req_body.password, db
     )
 
-    if not user or not pwd_context.verify(req_body.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Invalid Credentials")
-    
-    access_token = create_access_token(user.user_id)
     return {
         "message": "User Signed In Successfully",
         "user_id": user.user_id,
@@ -205,7 +131,9 @@ def sign_in(req_body: SignInBody, db: Session = Depends(get_db)):
     }
 
 @app.get('/auth/me')
-def get_me(user: models.User = Depends(get_current_user)):
+def get_me(
+      user: models.User = Depends(auth_service.get_current_user)
+    ):
     return {
         "user_id": user.user_id,
         "username": user.username,
@@ -216,8 +144,8 @@ def get_me(user: models.User = Depends(get_current_user)):
 @app.get('/orders/{order_id}')
 def get_order(
         order_id: int,
-        user: models.User = Depends(get_current_user),
-        db: Session = Depends(get_db)
+        db: Session = Depends(get_db),
+        user: models.User = Depends(auth_service.get_current_user),
     ):
     order: models.Order = (
         db.query(models.Order)
@@ -245,7 +173,7 @@ def get_order(
 @app.post('/shops/create', status_code = 201)
 def create_shop(
     req_body: CreateShopBody,
-    user: models.User = Depends(get_current_user),
+    user: models.User = Depends(auth_service.get_current_user),
     db: Session = Depends(get_db)
     ):
 
@@ -286,7 +214,7 @@ def create_shop(
 @app.get('/shops/{shop_id}')
 def get_shop(
     shop_id: int,
-    user: models.User = Depends(get_current_user),
+    _: models.User = Depends(auth_service.get_current_user),
     db: Session = Depends(get_db)
 ):
     shop: models.Shop = (
