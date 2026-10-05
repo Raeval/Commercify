@@ -7,7 +7,7 @@ import models
 
 from passlib.context import CryptContext
 
-from services import auth_service
+from services import service, auth_service
 
 from enums import *
 
@@ -132,7 +132,7 @@ def sign_in(req_body: SignInBody, db: Session = Depends(get_db)):
 
 @app.get('/auth/me')
 def get_me(
-      user: models.User = Depends(auth_service.get_current_user)
+        user: models.User = Depends(auth_service.get_current_user)
     ):
     return {
         "user_id": user.user_id,
@@ -175,36 +175,18 @@ def create_shop(
     req_body: CreateShopBody,
     user: models.User = Depends(auth_service.get_current_user),
     db: Session = Depends(get_db)
-    ):
+):
 
-    existing_shop = (
-        db.query(models.Shop)
-            .filter(models.Shop.shop_name == req_body.shop_name)
-            .first()
-    )
-    
-    if existing_shop:
-        raise HTTPException(status_code=409, detail="Shop name not available")
-    
     plan = req_body.plan
     if not plan:
         plan = ShopPlan.FREE
-
-    new_shop = models.Shop(
-        shop_name=req_body.shop_name,
-        plan=plan
+    
+    new_shop: models.Shop = service.create_shop(
+        user,
+        req_body.shop_name,
+        plan,
+        db
     )
-
-    db.add(new_shop)
-    db.flush()
-
-    shop_owner = models.ShopOwner(
-        shop_id=new_shop.shop_id,
-        user_id=user.user_id,
-    )
-
-    db.add(shop_owner)
-    db.commit()
 
     return {
         "message": "Shop created successfully",
@@ -217,13 +199,7 @@ def get_shop(
     _: models.User = Depends(auth_service.get_current_user),
     db: Session = Depends(get_db)
 ):
-    shop: models.Shop = (
-        db.query(models.Shop)
-            .filter(models.Shop.shop_id == shop_id)
-            .first()
-    )
-    if not shop:
-        raise HTTPException(status_code=404, detail="Shop not found")
+    shop: models.Shop = service.get_shop(shop_id, db)
 
     return {
         "shop_name": shop.shop_name,

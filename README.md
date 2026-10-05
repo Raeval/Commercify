@@ -4,3 +4,7 @@ This project is a mock-up e-commerce platform built with FastAPI for the backend
 # How to Run
 ## Backend
 uvicorn main:app --reload
+
+### Testing Backend
+cd backend
+python3 -m pytest
