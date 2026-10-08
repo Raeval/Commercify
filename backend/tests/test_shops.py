@@ -15,13 +15,11 @@ def test_create_shop_no_plan(client):
 
     assert res.status_code == 201
 
-    shop_id = res.json()["shop_id"]
-
     # Get shop from database
     res = client.get(
-        f"/shops/{shop_id}",
+        f"/shops/name/Test shop",
         headers={
-                    "Authorization": f"Bearer {access_token}"
+            "Authorization": f"Bearer {access_token}"
         },
     )
     shop = res.json()
@@ -45,7 +43,7 @@ def test_create_with_plan(client):
     shop_id = res.json()["shop_id"]
 
     res = client.get(
-        f"/shops/{shop_id}",
+        f"/shops/id/{shop_id}",
         headers = {
             "Authorization": f"Bearer {access_token}"
         }

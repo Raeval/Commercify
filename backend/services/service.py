@@ -4,7 +4,7 @@ from fastapi import HTTPException
 
 from enums import *
 
-def get_shop(
+def get_shop_by_id(
     shop_id,
     db: Session
 ):
@@ -17,6 +17,21 @@ def get_shop(
     if not shop:
         raise HTTPException(status_code=404, detail="Shop not found")
 
+    return shop
+
+def get_shop_by_name(
+    shop_name,
+    db: Session
+):
+    shop: models.Shop = (
+        db.query(models.Shop)
+            .filter(models.Shop.shop_name == shop_name)
+            .first()
+    )
+    
+    if not shop:
+        raise HTTPException(status_code=404, detail="Shop not found")
+    
     return shop
 
 def create_shop(

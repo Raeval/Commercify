@@ -193,13 +193,35 @@ def create_shop(
         "shop_id": new_shop.shop_id
     }
 
-@app.get('/shops/{shop_id}')
-def get_shop(
+@app.get('/shops/id/{shop_id}')
+def get_shop_by_id(
     shop_id: int,
     _: models.User = Depends(auth_service.get_current_user),
     db: Session = Depends(get_db)
 ):
-    shop: models.Shop = service.get_shop(shop_id, db)
+    shop: models.Shop = service.get_shop_by_id(shop_id, db)
+
+    return {
+        "shop_name": shop.shop_name,
+        "shop_id": shop.shop_id,
+        "owners": shop.owners,
+        "products": [
+            {
+                "product_id": product.product_id,
+                "name": product.product_name,
+                "price": product.price,
+            }
+            for product in shop.products
+        ]
+    }
+
+@app.get('/shops/name/{shop_name}')
+def get_shop_by_name(
+    shop_name: str,
+    _: models.User = Depends(auth_service.get_current_user),
+    db: Session = Depends(get_db)
+):
+    shop: models.Shop = service.get_shop_by_name(shop_name, db)
 
     return {
         "shop_name": shop.shop_name,

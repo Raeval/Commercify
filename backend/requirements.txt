@@ -1,0 +1,12 @@
+# Application
+fastapi[standard]>=0.141.1
+PyJWT>=2.15.1
+SQLAlchemy>=2.0
+python-dotenv>=1.0
+passlib>=1.7.4
+bcrypt==4.0.1
+psycopg[binary]>=3.2
+
+# Testing
+pytest>=8.0
+httpx>=0.28
