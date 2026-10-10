@@ -221,7 +221,7 @@ def get_shop_by_name(
     _: models.User = Depends(auth_service.get_current_user),
     db: Session = Depends(get_db)
 ):
-    shop: models.Shop = None
+    shop: models.Shop = None 
 
     return {
         "shop_name": shop.shop_name,
