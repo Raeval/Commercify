@@ -41,6 +41,7 @@ jobs:
     - name: Create test environment
       run: |
         echo "JWT_SECRET_KEY=5f34fa78977fee8b8d5ff1c8df8355dead6a1780a8664de70e9be91f228dafad" > .env
+        echo "DATABASE_URL=sqlite://" >> .env
     - name: Test with pytest
       run: |
         python -m pytest
